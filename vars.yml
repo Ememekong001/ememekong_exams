@@ -1,0 +1,9 @@
+--- 
+
+     http_port: 80
+     domain: airmyekong.me
+     repo_link: https://github.com/f1amy/laravel-realworld-example-app.git
+     db_user: mimi
+     db_pass: Mimiekong@21
+     db_name: alt_exams
+     working_directory: /var/www/airmyekong

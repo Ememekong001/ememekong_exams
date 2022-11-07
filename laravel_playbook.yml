@@ -1,0 +1,269 @@
+---
+ - name: Deploy Laravel Exams
+   hosts: all
+   remote_user: root
+   vars_files:
+   - vars.yml
+
+
+   tasks:
+#update ubuntu and install software properties
+   - name: update ubuntu
+     command: sudo apt update
+
+   - name: Installation install software-properties-common
+     apt: name=software-properties-common
+
+#set timezone to Lagos/Africa
+   - name: Set timezone to Africa/Lagos
+     timezone:
+       name: Africa/Lagos
+
+#set hostname
+   - name: Set a hostname
+     ansible.builtin.hostname:
+         name: server.airmyekong.me
+
+   - name: Installing Apache
+     apt:
+       name: apache2
+       state: present
+
+#enabling apache to start at poweron
+   - name: enable apache
+     command: sudo  systemctl enable apache2
+
+#starting apache2
+   - name: start apache
+     command: sudo systemctl start apache2
+
+   - name: status apache
+     command: sudo systemctl status apache2
+
+#enabling modules
+   - name: enabled mod_rewrite
+     apache2_module: name=rewrite state=present
+     notify:
+       - restart apache2
+
+#disabling default apache site
+   - name: Disable default Apache site
+     command: a2dissite 000-default.conf
+     notify: reload apache2
+
+#create virtual host for airmyekong.me
+   - name: create virtual host file
+     template: src=virtualhost.conf dest=/etc/apache2/sites-available/{{ domain }}.conf
+
+   - name: a2ensite "{{ domain }}"
+     command: a2ensite "{{ domain }}".conf
+     args:
+       creates: /etc/apache2/sites-enabled/"{{ domain }}".conf
+     notify:
+       - restart apache2
+
+#installing git
+   - name: Installing Git
+     apt:
+       name: git
+       state: present
+       update_cache: yes
+
+#installing and setting up firewall 
+   - name: Install UFW firewall
+     apt: name=ufw update_cache=yes state=latest
+
+   - name: Enable UFW
+     ufw:
+       state: enabled
+
+   - name: ufw allow Openssh
+     ufw:
+        rule: allow
+        name: OpenSSH
+     notify:
+     - reload ufw
+
+   - name: ufw allow http
+     ufw:
+       rule: allow
+       name: Apache Full
+     notify:
+     - reload ufw
+
+#php installation
+   - name: Adding ppa repository for php
+     ansible.builtin.apt_repository:
+       repo: ppa:ondrej/php
+
+   - name: run ubuntu update
+     command: sudo apt update
+
+   - name: Install php
+     apt: name=php8.1 update_cache=yes state=latest
+
+   - name: Install PHP packages
+     become: true
+     apt:
+       name: "{{ item }}"
+       state: latest
+     with_items:
+       - php8.1-cli
+       - php8.1-curl
+       - php8.1-fpm
+       - php8.1-intl
+       - php8.1-mysql
+       - php8.1-xml
+       - php8.1-mbstring
+
+   - name: check php version
+     command: php -v
+
+#installing mysql packages
+   - name: Installing Mysql and its dependencies
+     become: true
+     apt:
+       name: "{{ item }}"
+       state: latest
+       update_cache: yes
+     with_items:
+       - mysql-server
+       - mysql-client
+       - python3-mysqldb
+       - libmysqlclient-dev
+   - name: Start and enable mysql service
+     service:
+       name: mysql
+       state: started
+       enabled: yes
+
+   - name: Creating mysql user (mimi)
+     mysql_user:
+       name: "{{db_user}}"
+       password: "{{db_pass}}"
+       priv: '*.*:ALL'
+       host: '%'
+       state: present
+
+   - name: Creating alt_exams db
+     mysql_db:
+       name: "{{db_name}}"
+       state: present
+
+   - name: Enable remote login to mysql
+     lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: '^bind-address'
+        line: 'bind-address = 0.0.0.0'
+        backup: yes
+     notify:
+        - Restart mysql
+
+#installing composer
+   - name: Install low-level utilities
+     become: true
+     apt:
+       name: "{{ item }}"
+     with_items:
+       - zip
+       - unzip
+
+   - name: Composer download
+     become: yes
+     shell: |
+         curl -sS https://getcomposer.org/installer -o composer-setup.php     
+         sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+
+   - name: Set permissions on Composer
+     become: true
+     file:
+       path: /usr/local/bin/composer
+       mode: "a+x"
+
+#cloning the laravel demo project
+   - name: Clone the project github repository
+     git:
+      repo: "{{ repo_link }}"
+      dest: /var/www/airmyekong
+      clone: yes
+      update: yes
+
+#creating .env 
+   - name: Creating .env file
+     command: cp /var/www/airmyekong/.env.example  /var/www/airmyekong/.env
+
+#create .htaccess for airmyekong.me
+   - name: Create .htaccess file
+     template: src=.htaccess dest=/var/www/airmyekong/.htaccess
+
+#changing permissions and ownership
+   - name: Changing permissions of laravel project
+     command: sudo chmod -R 775 /var/www/airmyekong/
+
+   - name: Changing ownership of laravel project
+     command: sudo chown -R www-data:www-data /var/www/airmyekong/
+
+#editing .env to database credentials
+   - name: set DB_DATABASE
+     lineinfile: dest={{ working_directory }}/.env regexp='^DB_DATABASE=' line=DB_DATABASE={{ db_name }}
+
+   - name: set DB_HOST
+     lineinfile: dest={{ working_directory }}/.env regexp='^DB_HOST=' line=DB_HOST=localhost
+
+   - name: set DB_PORT
+     lineinfile: dest={{ working_directory }}/.env regexp='^DB_PORT=' line=DB_PORT=3306
+
+   - name: set DB_USERNAME
+     lineinfile: dest={{ working_directory }}/.env regexp='^DB_USERNAME=' line=DB_USERNAME={{ db_user }}
+
+   - name: set DB_PASSWORD
+     lineinfile: dest={{ working_directory }}/.env regexp='^DB_PASSWORD=' line=DB_PASSWORD={{ db_pass }}
+
+   - name: set DB_CONNECTION
+     lineinfile: dest={{ working_directory }}/.env regexp='^DB_CONNECTION=' line=DB_CONNECTION=mysql
+ 
+   - name: Composer install
+     community.general.composer:
+       command: install
+       working_dir: /var/www/airmyekong
+     environment:
+        COMPOSER_ALLOW_SUPERUSER: 1
+
+   - name: Composer update
+     community.general.composer:
+       command: update
+       working_dir: /var/www/airmyekong
+     environment:
+        COMPOSER_ALLOW_SUPERUSER: 1
+
+   - name: Composer create project
+     community.general.composer:
+       command: create-project
+       working_dir: /var/www/airmyekong
+     environment:
+        COMPOSER_ALLOW_SUPERUSER: 1
+
+#Liveencrypt
+
+   - name: Generating certbot certificate
+     ansible.builtin.shell: |
+       snap install core
+       snap refresh core
+       snap install --classic certbot
+       ln -s /snap/bin/certbot /usr/bin/certbot
+       yes | certbot --apache --agree-tos --redirect -m airmyekong@gmail.com -d airmyekong.me -d>
+     become: yes
+
+#handlers
+   handlers:
+     - name: reload apache2
+       service: name=apache2 state=reloaded
+
+     - name: restart apache2
+       service: name=apache2 state=restarted
+
+     - name: reload ufw
+       service: name=ufw state=reloaded
+
+     - name: Restart mysql
+       service: name=mysql state=restarted
