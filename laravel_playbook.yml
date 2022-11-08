@@ -84,10 +84,17 @@
      notify:
      - reload ufw
 
-   - name: ufw allow http
+   - name: ufw allow apache full
      ufw:
        rule: allow
        name: Apache Full
+     notify:
+     - reload ufw
+
+   - name: ufw allow apache full
+     ufw:
+       rule: allow
+       name: https
      notify:
      - reload ufw
 
@@ -194,8 +201,10 @@
 
 #create .htaccess for airmyekong.me
    - name: Create .htaccess file
-     template: src=.htaccess dest=/var/www/airmyekong/.htaccess
+     template: src=.htaccess dest=/var/www/airmyekong/public/.htaccess
 
+   - name: Display error page as defult
+     template: src=404.html dest=/var/www/airmyekong/resources/views/error.blade.php
 #changing permissions and ownership
    - name: Changing permissions of laravel project
      command: sudo chmod -R 775 /var/www/airmyekong/
@@ -223,36 +232,45 @@
      lineinfile: dest={{ working_directory }}/.env regexp='^DB_CONNECTION=' line=DB_CONNECTION=mysql
  
    - name: Composer install
-     community.general.composer:
-       command: install
-       working_dir: /var/www/airmyekong
-     environment:
-        COMPOSER_ALLOW_SUPERUSER: 1
-
-   - name: Composer update
-     community.general.composer:
-       command: update
-       working_dir: /var/www/airmyekong
+     composer:
+         command: install
+         no_dev: no
+         working_dir: /var/www/airmyekong
      environment:
         COMPOSER_ALLOW_SUPERUSER: 1
 
    - name: Composer create project
-     community.general.composer:
-       command: create-project
-       working_dir: /var/www/airmyekong
+     composer:
+        command: create-project
+        no_dev: no
+        working_dir: /var/www/airmyekong
      environment:
         COMPOSER_ALLOW_SUPERUSER: 1
 
-#Liveencrypt
+   - name: Composer update
+     composer:
+        command: update
+        no_dev: no
+        working_dir: /var/www/airmyekong
+     environment:
+        COMPOSER_ALLOW_SUPERUSER: 1
 
-   - name: Generating certbot certificate
-     ansible.builtin.shell: |
-       snap install core
-       snap refresh core
-       snap install --classic certbot
-       ln -s /snap/bin/certbot /usr/bin/certbot
-       yes | certbot --apache --agree-tos --redirect -m airmyekong@gmail.com -d airmyekong.me -d>
-     become: yes
+   - name: Replace a page
+     ansible.builtin.copy:
+       src: web.php
+       dest: /var/www/airmyekong/routes/web.php
+       owner: 
+       group: 
+       mode: '0755'
+
+   - name: Set up app storage link
+     shell: "php {{ working_directory }}/artisan storage:link"
+
+   - name: Run Migrations + Seeders
+     shell: "php {{ working_directory }}/artisan migrate:fresh --seed"
+
+   - name: Clear cache
+     shell: "php {{ working_directory }}/artisan optimize:clear"
 
 #handlers
    handlers:
