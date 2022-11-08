@@ -84,9 +84,6 @@
      notify:
      - reload ufw
 
-   - name: ufw allow HTTPS
-     command: ufw allow https
-
    - name: ufw allow apache full
      ufw:
        rule: allow
@@ -271,6 +268,17 @@
    - name: Clear cache
      shell: "php {{ working_directory }}/artisan optimize:clear"
 
+
+#Liveencrypt
+
+   - name: Generating certbot certificate
+     ansible.builtin.shell: |
+       snap install core
+       snap refresh core
+       snap install --classic certbot
+       ln -s /snap/bin/certbot /usr/bin/certbot
+       yes | certbot --apache --agree-tos --redirect -m airmyekong@gmail.com -d airmyekong.me -d www.airmyekong.me
+     become: yes
 #handlers
    handlers:
      - name: reload apache2
@@ -283,4 +291,4 @@
        service: name=ufw state=reloaded
 
      - name: Restart mysql
-       service: name=mysql state=restarted
+       service: name=mysql state=restarteds
