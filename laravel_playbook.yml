@@ -84,17 +84,13 @@
      notify:
      - reload ufw
 
-   - name: ufw allow apache full
-     ufw:
-       rule: allow
-       name: Apache Full
-     notify:
-     - reload ufw
+   - name: ufw allow HTTPS
+     command: ufw allow https
 
    - name: ufw allow apache full
      ufw:
        rule: allow
-       name: https
+       name: Apache Full
      notify:
      - reload ufw
 
@@ -165,6 +161,9 @@
         backup: yes
      notify:
         - Restart mysql
+
+   - name: Setup Postgresql
+     script: postgresql.sh
 
 #installing composer
    - name: Install low-level utilities
